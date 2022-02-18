@@ -17,53 +17,43 @@ namespace InstantMessenger
             name = Console.ReadLine();
             Console.WriteLine("This Chat Count Until write end");
             string line = string.Empty;
-            while (line != $"end")
+            string exchangeName = "InstantMessenger";
+            var factory = new ConnectionFactory() { HostName = "localhost", UserName = name, Password = name };
+            using (var connection = factory.CreateConnection())
             {
-                Console.Write($"{name}:");
-                line = Console.ReadLine();
-                var factory = new ConnectionFactory() { HostName = "localhost" };
-                using (var connection = factory.CreateConnection())
+                using (var channel = connection.CreateModel())
                 {
-                    using (var channel = connection.CreateModel())
-                    {
-                        channel.ExchangeDeclare(exchange: "InstantMessenger", type: ExchangeType.Direct);
+                    channel.ExchangeDeclare(exchange: exchangeName, type: ExchangeType.Direct);
+                    var queueName = channel.QueueDeclare().QueueName;
+                    channel.QueueBind(queue: queueName,
+                                      exchange: exchangeName,
+                                      routingKey: chatRoomName);
 
-                        var message = $"{name}:{line}";
+                    var consumer = new EventingBasicConsumer(channel);
+                    consumer.Received += (model, ea) =>
+                    {
+                        var recivedBody = ea.Body.ToArray();
+                        var recivedMessage = Encoding.UTF8.GetString(recivedBody);
+                        var routingKey = ea.RoutingKey;
+                        Console.WriteLine($"{ea.BasicProperties.UserId}:{recivedMessage}");
+                    };
+                    channel.BasicConsume(queue: queueName,
+                                         autoAck: true,
+                                         consumer: consumer);
+
+                    IBasicProperties props = channel.CreateBasicProperties();
+                    props.UserId = name;
+
+                    while (line != $"end")
+                    {
+                        //Console.Write($"{name}:");
+                        line = Console.ReadLine();
+                        var message = line;
                         var body = Encoding.UTF8.GetBytes(message);
-                        channel.BasicPublish(exchange: "InstantMessenger",
+                        channel.BasicPublish(exchange: exchangeName,
                                              routingKey: chatRoomName,
-                                             basicProperties: null,
+                                             basicProperties: props,
                                              body: body);
-
-                    }
-
-                }
-                using (var ReceivedConnection = factory.CreateConnection())
-                {
-                    using (var ReceivedChannel = ReceivedConnection.CreateModel())
-                    {
-                        ReceivedChannel.ExchangeDeclare(exchange: "InstantMessenger", type: ExchangeType.Direct);
-
-                        var queueName = ReceivedChannel.QueueDeclare().QueueName;
-                        ReceivedChannel.QueueBind(queue: queueName,
-                                          exchange: "InstantMessenger",
-                                          routingKey: chatRoomName);
-
-                        var consumer = new EventingBasicConsumer(ReceivedChannel);
-                        consumer.Received += (model, ea) =>
-                        {
-                            var recivedBody = ea.Body.ToArray();
-                            var recivedMessage = Encoding.UTF8.GetString(recivedBody);
-                            var arrmessage = recivedMessage.Split(':');
-                            if (arrmessage[0] != name)
-                            {
-                                Console.WriteLine(recivedMessage);
-                            }
-                            Console.WriteLine(recivedMessage);
-                        };
-                        ReceivedChannel.BasicConsume(queue: queueName,
-                                             autoAck: true,
-                                             consumer: consumer);
                     }
                 }
             }
